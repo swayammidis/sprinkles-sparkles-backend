@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated Prisma client
+    "src/generated/**",
+    // Drop-in kit for the separate storefront repo (typechecked there)
+    "storefront-integration/**",
   ]),
 ]);
 
