@@ -1,171 +1,97 @@
 import "server-only";
-import type { Prisma, StockStatus } from "@/generated/prisma/client";
+import type { ProductFields, StockStatus } from "@/models/Product";
+import type { TaxonomyFields } from "@/models/taxonomy";
+import { paiseToRupees } from "@/lib/money";
 import type {
-  PublicCategory,
   PublicImage,
+  PublicMoney,
   PublicProductDetail,
   PublicProductSummary,
+  PublicRef,
   PublicStockStatus,
-  PublicTaxonomyRef,
-  PublicVariant,
+  PublicTaxonomy,
 } from "@/types/public-api";
 
-/**
- * Prisma → public DTO mappers. The selects below are the single source of truth
- * for which columns the storefront API reads — nothing else is fetched.
- */
+/** Mongoose documents → public DTOs. The only place that knows both shapes. */
 
-const ref = { select: { name: true, slug: true, active: true } } as const;
-
-export const publicProductSummarySelect = {
-  id: true,
-  slug: true,
-  name: true,
-  shortDescription: true,
-  sku: true,
-  price: true,
-  salePrice: true,
-  effectivePrice: true,
-  stockStatus: true,
-  hasVariants: true,
-  featured: true,
-  newArrival: true,
-  bestSeller: true,
-  category: ref,
-  subcategory: ref,
-  brand: ref,
-  images: {
-    orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
-    take: 1,
-    select: { url: true, altText: true, isPrimary: true },
-  },
-  variants: { where: { active: true, salePrice: { not: null } }, select: { id: true }, take: 1 },
-} satisfies Prisma.ProductSelect;
-
-export const publicProductDetailSelect = {
-  ...publicProductSummarySelect,
-  description: true,
-  weight: true,
-  length: true,
-  width: true,
-  height: true,
-  seoTitle: true,
-  seoDescription: true,
-  seoImage: true,
-  images: {
-    orderBy: [{ sortOrder: "asc" }],
-    select: { url: true, altText: true, isPrimary: true },
-  },
-  variants: {
-    where: { active: true },
-    orderBy: { sortOrder: "asc" },
-    select: {
-      id: true,
-      name: true,
-      sku: true,
-      price: true,
-      salePrice: true,
-      stockQuantity: true,
-      weight: true,
-      image: { select: { url: true, altText: true, isPrimary: true } },
-      attributes: { select: { name: true, value: true }, orderBy: { name: "asc" } },
-    },
-  },
-  collections: { where: { collection: { active: true } }, select: { collection: { select: { name: true, slug: true } } } },
-  occasions: { where: { occasion: { active: true } }, select: { occasion: { select: { name: true, slug: true } } } },
-} satisfies Prisma.ProductSelect;
-
-type SummaryRow = Prisma.ProductGetPayload<{ select: typeof publicProductSummarySelect }>;
-type DetailRow = Prisma.ProductGetPayload<{ select: typeof publicProductDetailSelect }>;
-
-const m = (d: Prisma.Decimal) => d.toFixed(2);
-const mNull = (d: Prisma.Decimal | null) => (d == null ? null : d.toFixed(2));
-const dNull = (d: Prisma.Decimal | null) => (d == null ? null : d.toString());
-
-const STOCK: Record<StockStatus, PublicStockStatus> = {
-  IN_STOCK: "in_stock",
-  OUT_OF_STOCK: "out_of_stock",
-  ON_BACKORDER: "backorder",
+type Lean<T> = T & { _id: unknown };
+export type RefMaps = {
+  categories: Map<string, PublicRef>;
+  subcategories: Map<string, PublicRef>;
+  brands: Map<string, PublicRef>;
+  collections: Map<string, PublicRef>;
+  occasions: Map<string, PublicRef>;
 };
 
-const toRef = (r: { name: string; slug: string; active: boolean } | null): PublicTaxonomyRef | null =>
-  r && r.active ? { name: r.name, slug: r.slug } : null;
+export const money = (paise: number): PublicMoney => ({ amount: paiseToRupees(paise), paise });
+const maybeMoney = (paise: number | null | undefined) => (paise == null ? null : money(paise));
 
-const toImage = (i: { url: string; altText: string | null; isPrimary: boolean }, fallbackAlt: string): PublicImage => ({
-  url: i.url,
-  alt: i.altText || fallbackAlt,
-  isPrimary: i.isPrimary,
-});
+const STOCK: Record<StockStatus, PublicStockStatus> = { in_stock: "in_stock", out_of_stock: "out_of_stock", on_backorder: "backorder" };
 
-export function toPublicProductSummary(p: SummaryRow): PublicProductSummary {
-  const primary = p.images[0];
+const ref = (map: Map<string, PublicRef>, id: unknown) => (id ? (map.get(String(id)) ?? null) : null);
+
+function primaryImage(p: Pick<ProductFields, "images" | "name">): PublicImage | null {
+  const img = p.images.find((i) => i.isPrimary) ?? p.images[0];
+  return img ? { url: img.url, alt: img.alt || p.name } : null;
+}
+
+export function toPublicTaxonomy(t: Lean<TaxonomyFields>): PublicTaxonomy {
+  return { name: t.name, slug: t.slug, description: t.description ?? "", image: t.image ?? null };
+}
+
+export function toProductSummary(p: Lean<ProductFields>, refs: RefMaps): PublicProductSummary {
+  const activeVariants = p.variants.filter((v) => v.isActive);
+  const onSale = p.hasVariants ? activeVariants.some((v) => v.salePrice != null) : p.salePrice != null;
   return {
-    id: p.id,
+    id: String(p._id),
     slug: p.slug,
     name: p.name,
-    shortDescription: p.shortDescription,
-    sku: p.sku,
-    price: m(p.price),
-    salePrice: mNull(p.salePrice),
-    fromPrice: m(p.effectivePrice),
+    shortDescription: p.shortDescription ?? "",
+    price: money(p.price),
+    salePrice: p.hasVariants ? null : maybeMoney(p.salePrice),
+    fromPrice: money(p.effectivePrice),
     currency: "INR",
     stockStatus: STOCK[p.stockStatus],
-    hasVariants: p.hasVariants,
-    image: primary ? toImage(primary, p.name) : null,
-    category: toRef(p.category),
-    subcategory: toRef(p.subcategory),
-    brand: toRef(p.brand),
-    badges: {
-      featured: p.featured,
-      newArrival: p.newArrival,
-      bestSeller: p.bestSeller,
-      onSale: p.salePrice != null || p.variants.length > 0,
-    },
+    hasVariants: p.hasVariants && activeVariants.length > 0,
+    image: primaryImage(p),
+    category: ref(refs.categories, p.category),
+    subcategory: ref(refs.subcategories, p.subcategory),
+    brand: ref(refs.brands, p.brand),
+    badges: { featured: p.featured, newArrival: p.newArrival, bestSeller: p.bestSeller, onSale },
   };
 }
 
-export function toPublicProductDetail(p: DetailRow): PublicProductDetail {
-  const images = p.images.map((i) => toImage(i, p.name));
-  const primary = images.find((i) => i.isPrimary) ?? images[0] ?? null;
-  const variants: PublicVariant[] = p.variants.map((v) => ({
-    id: v.id,
-    name: v.name,
-    sku: v.sku,
-    price: m(v.price),
-    salePrice: mNull(v.salePrice),
-    // Exact quantities are internal; the storefront only needs availability.
-    stockStatus: v.stockQuantity > 0 ? "in_stock" : p.stockStatus === "ON_BACKORDER" ? "backorder" : "out_of_stock",
-    weightGrams: dNull(v.weight),
-    image: v.image ? toImage(v.image, `${p.name} – ${v.name}`) : null,
-    attributes: Object.fromEntries(v.attributes.map((a) => [a.name, a.value])),
-  }));
+export function toProductDetail(p: Lean<ProductFields>, refs: RefMaps): PublicProductDetail {
+  const imageByMedia = new Map(p.images.map((i) => [String(i.media), { url: i.url, alt: i.alt || p.name }]));
+  const primary = primaryImage(p);
   return {
-    ...toPublicProductSummary({ ...p, images: primary ? [{ url: primary.url, altText: primary.alt, isPrimary: primary.isPrimary }] : [], variants: p.variants.filter((v) => v.salePrice != null) }),
-    description: p.description,
-    images,
-    variants,
-    collections: p.collections.map((c) => c.collection),
-    occasions: p.occasions.map((o) => o.occasion),
+    ...toProductSummary(p, refs),
+    sku: p.hasVariants ? null : p.sku,
+    description: p.description ?? "",
+    images: [...p.images].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)).map((i) => ({ url: i.url, alt: i.alt || p.name })),
+    variantType: p.hasVariants ? p.variantType : null,
+    variants: p.variants
+      .filter((v) => v.isActive)
+      .map((v) => ({
+        id: String(v._id),
+        label: v.label,
+        sku: v.sku,
+        price: money(v.price),
+        salePrice: maybeMoney(v.salePrice),
+        // Exact quantities stay internal; the storefront only needs availability.
+        stockStatus: v.stockQuantity > 0 ? "in_stock" : p.allowBackorder ? "backorder" : "out_of_stock",
+        weightGrams: v.weight,
+        image: v.image ? (imageByMedia.get(String(v.image)) ?? null) : null,
+      })),
+    collections: p.collections.map((id) => ref(refs.collections, id)).filter((r): r is PublicRef => !!r),
+    occasions: p.occasions.map((id) => ref(refs.occasions, id)).filter((r): r is PublicRef => !!r),
+    tags: p.tags ?? [],
     shipping: {
-      weightGrams: dNull(p.weight),
-      lengthCm: dNull(p.length),
-      widthCm: dNull(p.width),
-      heightCm: dNull(p.height),
+      weightGrams: p.shipping?.weight ?? null,
+      lengthCm: p.shipping?.length ?? null,
+      widthCm: p.shipping?.width ?? null,
+      heightCm: p.shipping?.height ?? null,
     },
-    seo: {
-      title: p.seoTitle || p.name,
-      description: p.seoDescription || p.shortDescription,
-      image: p.seoImage || primary?.url || null,
-    },
+    seo: { title: p.seo?.title || p.name, description: p.seo?.description || p.shortDescription || "", image: primary?.url ?? null },
   };
-}
-
-export function toPublicCategory(c: {
-  name: string;
-  slug: string;
-  description: string | null;
-  image: string | null;
-  subcategories: { name: string; slug: string; description: string | null; image: string | null }[];
-}): PublicCategory {
-  return { name: c.name, slug: c.slug, description: c.description, image: c.image, subcategories: c.subcategories };
 }

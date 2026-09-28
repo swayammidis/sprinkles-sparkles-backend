@@ -10,14 +10,28 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  images: {
-    // Admin thumbnails use plain <img>; the storefront handles image optimisation.
-    unoptimized: true,
-  },
+  // Keep Mongoose and bcrypt as runtime Node dependencies (never bundled for the browser).
+  serverExternalPackages: ["mongoose", "bcryptjs"],
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
-      { source: "/(admin|login)(.*)", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] },
+      {
+        // Admin pages must never be cached, so after logout the back button
+        // re-requests the page and gets redirected to /login.
+        source: "/admin/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store, max-age=0" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/admin",
+        headers: [
+          { key: "Cache-Control", value: "no-store, max-age=0" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      { source: "/login", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] },
     ];
   },
 };

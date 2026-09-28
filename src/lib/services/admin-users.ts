@@ -1,58 +1,146 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
-import { hashPassword } from "better-auth/crypto";
-import { prisma } from "@/lib/db/prisma";
-import { badRequest, conflict, notFound } from "@/lib/api/errors";
+import { isValidObjectId } from "mongoose";
+import { connectDB } from "@/lib/db";
+import { AdminUser } from "@/models/AdminUser";
+import { AdminSession } from "@/models/AdminSession";
+import { hashPassword } from "@/lib/auth/password";
+import { ApiError } from "@/lib/api/admin-route";
+import type { CurrentAdmin } from "@/lib/auth/session";
 import type { Role } from "@/lib/auth/permissions";
 
-const select = { id: true, name: true, email: true, role: true, active: true, createdAt: true } as const;
+/** Safe shape sent to the admin UI. Never includes the password hash. */
+export type AdminUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+};
 
-export async function listAdminUsers() {
-  const users = await prisma.adminUser.findMany({ select, orderBy: { createdAt: "asc" } });
-  return users.map((u) => ({ ...u, createdAt: u.createdAt.toISOString() }));
+const SAFE_FIELDS = "name email role isActive lastLoginAt createdAt";
+
+type LeanAdmin = {
+  _id: unknown;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  lastLoginAt?: Date | null;
+  createdAt?: Date;
+};
+
+function toRow(u: LeanAdmin): AdminUserRow {
+  return {
+    id: String(u._id),
+    name: u.name,
+    email: u.email,
+    role: u.role as Role,
+    isActive: u.isActive,
+    lastLoginAt: u.lastLoginAt ? new Date(u.lastLoginAt).toISOString() : null,
+    createdAt: u.createdAt ? new Date(u.createdAt).toISOString() : new Date(0).toISOString(),
+  };
 }
 
-/** Admins are provisioned here (public sign-up is disabled). Password hashed with Better Auth's scrypt. */
-export async function createAdminUser(input: { name: string; email: string; password: string; role: Role }) {
-  const existing = await prisma.adminUser.findUnique({ where: { email: input.email }, select: { id: true } });
-  if (existing) throw conflict("An admin with this email already exists", { fieldErrors: { email: ["Already in use"] } });
+const EMAIL_TAKEN = new ApiError(409, "An account with this email already exists.", {
+  email: "An account with this email already exists.",
+});
 
-  const id = randomUUID();
-  const password = await hashPassword(input.password);
-  const user = await prisma.adminUser.create({
-    data: {
-      id,
+async function findTarget(id: string) {
+  if (!isValidObjectId(id)) throw new ApiError(404, "Admin user not found.");
+  const user = await AdminUser.findById(id).select(SAFE_FIELDS).lean<LeanAdmin>();
+  if (!user) throw new ApiError(404, "Admin user not found.");
+  return user;
+}
+
+/** Refuse any change that would leave no active SUPER_ADMIN. */
+async function assertAnotherActiveSuperAdmin(excludingId: string) {
+  const others = await AdminUser.countDocuments({ role: "SUPER_ADMIN", isActive: true, _id: { $ne: excludingId } });
+  if (others === 0) throw new ApiError(409, "At least one active Super Admin is required.");
+}
+
+async function revokeSessions(userId: string, keepSessionId?: string) {
+  await AdminSession.deleteMany({ userId, ...(keepSessionId ? { sid: { $ne: keepSessionId } } : {}) });
+}
+
+// ---------------------------------------------------------------------------
+
+export async function listAdminUsers(): Promise<AdminUserRow[]> {
+  await connectDB();
+  const users = await AdminUser.find().select(SAFE_FIELDS).sort({ createdAt: 1 }).lean<LeanAdmin[]>();
+  return users.map(toRow);
+}
+
+export async function createAdminUser(input: { name: string; email: string; password: string; role: Role }) {
+  await connectDB();
+  if (await AdminUser.exists({ email: input.email })) throw EMAIL_TAKEN;
+  try {
+    const user = await AdminUser.create({
       name: input.name,
       email: input.email,
-      emailVerified: true,
+      passwordHash: await hashPassword(input.password),
       role: input.role,
-      active: true,
-      accounts: { create: { id: randomUUID(), accountId: id, providerId: "credential", password } },
-    },
-    select,
-  });
-  return { ...user, createdAt: user.createdAt.toISOString() };
+      isActive: true,
+    });
+    return toRow(user.toObject() as LeanAdmin);
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) throw EMAIL_TAKEN;
+    throw err;
+  }
 }
 
-export async function updateAdminUser(actorId: string, id: string, patch: { role?: Role; active?: boolean }) {
-  if (actorId === id && (patch.role !== undefined || patch.active === false)) {
-    throw badRequest("You cannot change your own role or deactivate yourself");
-  }
-  const target = await prisma.adminUser.findUnique({ where: { id }, select: { role: true, active: true } });
-  if (!target) throw notFound("Admin user");
+export async function updateAdminUser(actor: CurrentAdmin, id: string, input: { name: string; email: string; role: Role }) {
+  await connectDB();
+  const target = await findTarget(id);
+  const roleChanged = target.role !== input.role;
 
-  // Never leave the system without an active SUPER_ADMIN.
-  const demoting = target.role === "SUPER_ADMIN" && (patch.role === "ADMIN" || patch.active === false);
-  if (demoting) {
-    const others = await prisma.adminUser.count({ where: { role: "SUPER_ADMIN", active: true, id: { not: id } } });
-    if (others === 0) throw badRequest("At least one active Super Admin is required");
-  }
+  if (roleChanged && actor.id === id) throw new ApiError(400, "You cannot change your own role.");
+  if (roleChanged && target.role === "SUPER_ADMIN") await assertAnotherActiveSuperAdmin(id);
+  if (input.email !== target.email && (await AdminUser.exists({ email: input.email, _id: { $ne: id } }))) throw EMAIL_TAKEN;
 
-  const user = await prisma.$transaction(async (tx) => {
-    const u = await tx.adminUser.update({ where: { id }, data: patch, select });
-    // Revoke sessions on deactivation or role change so it applies immediately.
-    if (patch.active === false || patch.role !== undefined) await tx.adminSession.deleteMany({ where: { userId: id } });
-    return u;
-  });
-  return { ...user, createdAt: user.createdAt.toISOString() };
+  try {
+    const updated = await AdminUser.findByIdAndUpdate(
+      id,
+      { $set: { name: input.name, email: input.email, role: input.role } },
+      { new: true, runValidators: true },
+    )
+      .select(SAFE_FIELDS)
+      .lean<LeanAdmin>();
+    // A new role must apply immediately and cleanly, so sign them out everywhere.
+    if (roleChanged) await revokeSessions(id);
+    return toRow(updated!);
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) throw EMAIL_TAKEN;
+    throw err;
+  }
+}
+
+export async function setAdminActive(actor: CurrentAdmin, id: string, isActive: boolean) {
+  await connectDB();
+  const target = await findTarget(id);
+  if (actor.id === id && !isActive) throw new ApiError(400, "You cannot deactivate your own account.");
+  if (!isActive && target.role === "SUPER_ADMIN" && target.isActive) await assertAnotherActiveSuperAdmin(id);
+
+  const updated = await AdminUser.findByIdAndUpdate(id, { $set: { isActive } }, { new: true }).select(SAFE_FIELDS).lean<LeanAdmin>();
+  if (!isActive) await revokeSessions(id);
+  return toRow(updated!);
+}
+
+/** Replace the password with a new one (entered or generated by the Super Admin). The old password is never read or shown. */
+export async function resetAdminPassword(actor: CurrentAdmin, id: string, password: string) {
+  await connectDB();
+  await findTarget(id);
+  await AdminUser.updateOne({ _id: id }, { $set: { passwordHash: await hashPassword(password) } });
+  // Sign the account out everywhere. If you reset your own password, your current session is kept.
+  await revokeSessions(id, actor.id === id ? actor.sessionId : undefined);
+}
+
+export async function deleteAdminUser(actor: CurrentAdmin, id: string) {
+  await connectDB();
+  const target = await findTarget(id);
+  if (actor.id === id) throw new ApiError(400, "You cannot delete your own account.");
+  if (target.role === "SUPER_ADMIN" && target.isActive) await assertAnotherActiveSuperAdmin(id);
+  await revokeSessions(id);
+  await AdminUser.deleteOne({ _id: id });
 }

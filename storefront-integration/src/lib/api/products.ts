@@ -5,6 +5,7 @@ import type { Page, Product, ProductSummary } from "@/types/product";
 
 export type ProductQuery = {
   search?: string;
+  /** slugs */
   category?: string;
   subcategory?: string;
   brand?: string;
@@ -15,23 +16,20 @@ export type ProductQuery = {
   bestSeller?: boolean;
   onSale?: boolean;
   inStock?: boolean;
-  /** Rupees as decimal strings, e.g. "499" */
+  /** rupees, e.g. "499" */
   minPrice?: string;
   maxPrice?: string;
   sort?: PublicProductSort;
   page?: number;
+  /** max 48 */
   pageSize?: number;
 };
-
-export function toPage(p: Paginated<PublicProductSummary>): Page<ProductSummary> {
-  return { items: p.items.map(mapProductSummary), ...p.pagination };
-}
 
 const EMPTY: Page<ProductSummary> = { items: [], page: 1, pageSize: 0, total: 0, totalPages: 1 };
 
 export async function getProducts(query: ProductQuery = {}): Promise<Page<ProductSummary>> {
   const data = await catalogGet<Paginated<PublicProductSummary>>("/products", query);
-  return data ? toPage(data) : EMPTY;
+  return data ? { items: data.items.map(mapProductSummary), ...data.pagination } : EMPTY;
 }
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {
@@ -39,8 +37,11 @@ export async function getProductBySlug(slug: string): Promise<Product | null> {
   return data ? mapProduct(data) : null;
 }
 
-export const getFeaturedProducts = (pageSize = 8) => getProducts({ featured: true, pageSize, sort: "newest" });
-export const getNewArrivals = (pageSize = 8) => getProducts({ newArrival: true, pageSize, sort: "newest" });
+export const getFeaturedProducts = (pageSize = 8) => getProducts({ featured: true, pageSize });
+export const getNewArrivals = (pageSize = 8) => getProducts({ newArrival: true, pageSize });
 export const getBestSellers = (pageSize = 8) => getProducts({ bestSeller: true, pageSize });
-export const searchProducts = (search: string, query: Omit<ProductQuery, "search"> = {}) =>
-  getProducts({ ...query, search });
+export const getProductsByCategory = (category: string, q: Omit<ProductQuery, "category"> = {}) => getProducts({ ...q, category });
+export const getProductsBySubcategory = (subcategory: string, q: Omit<ProductQuery, "subcategory"> = {}) => getProducts({ ...q, subcategory });
+export const getCollectionProducts = (collection: string, q: Omit<ProductQuery, "collection"> = {}) => getProducts({ ...q, collection });
+export const getOccasionProducts = (occasion: string, q: Omit<ProductQuery, "occasion"> = {}) => getProducts({ ...q, occasion });
+export const searchProducts = (search: string, q: Omit<ProductQuery, "search"> = {}) => getProducts({ ...q, search });

@@ -1,5 +1,4 @@
 export * from "./products";
-export * from "./categories";
-export * from "./collections";
+export * from "./catalog";
 export { CatalogApiError } from "./client";
-export { formatPaise, toPaise } from "./mappers";
+export { formatPaise } from "./mappers";

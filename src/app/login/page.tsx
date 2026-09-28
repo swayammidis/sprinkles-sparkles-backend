@@ -1,39 +1,47 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentAdmin } from "@/lib/auth/session";
-import { LoginForm } from "@/components/admin/shared/login-form";
-import { Logo } from "@/components/admin/shared/logo";
-import { ThemeToggle } from "@/components/admin/header/theme-toggle";
+import { getRegistrationStatus } from "@/lib/auth/setup";
+import { LoginForm } from "@/components/admin/auth/login-form";
+import { AuthShell } from "@/components/admin/auth/auth-shell";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-/** Only allow internal redirect targets (prevents open-redirects via ?next=). */
-function safeNext(next: string | string[] | undefined) {
-  const v = Array.isArray(next) ? next[0] : next;
-  return v && v.startsWith("/admin") && !v.startsWith("//") ? v : "/admin";
-}
+const NOTICES: Record<string, string> = {
+  expired: "Your session has expired. Please sign in again.",
+  signed_out: "You have been signed out.",
+  registered: "Admin account created successfully. Please sign in.",
+};
 
 export default async function LoginPage(props: PageProps<"/login">) {
-  const { next } = await props.searchParams;
-  const target = safeNext(next);
-  if (await getCurrentAdmin()) redirect(target);
+  const { next, reason } = await props.searchParams;
+
+  // Already signed in: go straight to the dashboard. If the database is down, still show the form.
+  if (await getCurrentAdmin().catch(() => null)) redirect("/admin");
+
+  // The registration link only appears while first-admin setup is actually possible.
+  const registrationOpen = (await getRegistrationStatus().catch(() => "restricted")) === "open";
+  const notice = typeof reason === "string" ? NOTICES[reason] : undefined;
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-secondary/50 px-4 py-12">
-      <div className="absolute top-4 right-4">
-        <ThemeToggle />
-      </div>
-      <div className="w-full max-w-sm">
-        <Logo className="mb-8 justify-center" />
-        <div className="rounded-2xl border bg-card p-6 shadow-sm sm:p-8">
-          <h1 className="text-lg font-semibold">Sign in</h1>
-          <p className="mt-1 mb-6 text-sm text-muted-foreground">Use your admin account to manage the catalog.</p>
-          <LoginForm next={target} />
-        </div>
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Admin accounts are created by a Super Admin. Public sign-up is disabled.
-        </p>
-      </div>
-    </main>
+    <AuthShell
+      title="Sign in"
+      subtitle="Use your admin account to manage the store."
+      footer={
+        registrationOpen ? (
+          <>
+            Don&apos;t have an admin account?{" "}
+            <Link href="/register" className="font-medium text-primary hover:underline">
+              Create Admin Account
+            </Link>
+          </>
+        ) : (
+          <span className="text-xs">Admin accounts are created by a Super Admin. Public registration is restricted.</span>
+        )
+      }
+    >
+      <LoginForm next={typeof next === "string" ? next : undefined} notice={notice} />
+    </AuthShell>
   );
 }

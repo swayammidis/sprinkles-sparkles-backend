@@ -1,29 +1,29 @@
-import { adminRoute, readJson } from "@/lib/api/admin-route";
-import { notFound } from "@/lib/api/errors";
-import { deleteProduct, getProductForEdit, patchProduct, updateProduct } from "@/lib/services/products";
-import { productInputSchema, productPatchSchema } from "@/lib/validations/product";
+import { adminRoute, ApiError } from "@/lib/api/admin-route";
+import { readJson } from "@/lib/api/request";
+import { deleteProduct, getProductForEdit, quickUpdateProduct, updateProduct } from "@/lib/services/products";
+import { productInputSchema, productQuickUpdateSchema } from "@/lib/validations/catalog";
 
-type Params = { id: string };
+type P = { id: string };
 
-export const GET = adminRoute<Params>("catalog:read", async (_req, { params }) => {
+export const GET = adminRoute<P>("catalog:read", async (_req, { params }) => {
   const product = await getProductForEdit(params.id);
-  if (!product) throw notFound("Product");
+  if (!product) throw new ApiError(404, "Product not found.");
   return product;
 });
 
-/** Full replace from the product form. */
-export const PUT = adminRoute<Params>("catalog:write", async (req, { params }) => {
-  const input = productInputSchema.parse(await readJson(req));
+/** Save from the product form. */
+export const PUT = adminRoute<P>("catalog:write", async (req, { params }) => {
+  const input = productInputSchema.parse((await readJson(req, 512_000)) ?? {});
   return updateProduct(params.id, input);
 });
 
-/** Quick toggles: publish/unpublish, featured, stock. */
-export const PATCH = adminRoute<Params>("catalog:write", async (req, { params }) => {
-  const patch = productPatchSchema.parse(await readJson(req));
-  return patchProduct(params.id, patch);
+/** Quick actions from the product list: publish/unpublish, featured, new arrival. */
+export const PATCH = adminRoute<P>("catalog:write", async (req, { params }) => {
+  const patch = productQuickUpdateSchema.parse((await readJson(req)) ?? {});
+  return quickUpdateProduct(params.id, patch);
 });
 
-export const DELETE = adminRoute<Params>("catalog:delete", async (_req, { params }) => {
+export const DELETE = adminRoute<P>("catalog:delete", async (_req, { params }) => {
   await deleteProduct(params.id);
   return { ok: true };
 });

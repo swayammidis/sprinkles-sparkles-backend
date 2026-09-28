@@ -1,26 +1,25 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { getSessionCookie } from "better-auth/cookies";
+import NextAuth from "next-auth";
+import { NextResponse } from "next/server";
+import { authConfig } from "@/lib/auth/auth.config";
 
 /**
- * Optimistic gate only: rejects requests with no session cookie early.
- * The authoritative check (valid session, active user, role permission) runs
- * on the server in every admin layout/page (requireAdminPage) and every admin
- * API route (adminRoute). Never rely on this file alone.
+ * Optimistic gate. Requests without a valid session JWT are rejected here, early.
+ * This isn't the security boundary on its own: every admin page (requireAdminPage)
+ * and API route (adminRoute) re-validates the session and the admin's status in MongoDB.
  */
-export function proxy(request: NextRequest) {
-  const hasSession = !!getSessionCookie(request, { cookiePrefix: "ss-admin" });
-  const { pathname, search } = request.nextUrl;
+const { auth } = NextAuth(authConfig);
 
-  if (!hasSession) {
-    if (pathname.startsWith("/api/admin")) {
-      return NextResponse.json({ error: { message: "Authentication required" } }, { status: 401 });
-    }
-    const login = new URL("/login", request.url);
-    login.searchParams.set("next", pathname + search);
-    return NextResponse.redirect(login);
+export const proxy = auth((req) => {
+  if (req.auth) return NextResponse.next();
+
+  const { pathname, search } = req.nextUrl;
+  if (pathname.startsWith("/api/admin")) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
-  return NextResponse.next();
-}
+  const login = new URL("/login", req.nextUrl.origin);
+  login.searchParams.set("next", pathname + search);
+  return NextResponse.redirect(login);
+});
 
 export const config = {
   matcher: ["/admin", "/admin/:path*", "/api/admin/:path*"],

@@ -2,7 +2,7 @@
  * Role-based authorization.
  *
  * To add a permission: add it to PERMISSIONS, then grant it to roles below.
- * To add a role: add it to the AdminRole enum in prisma/schema.prisma and to ROLE_PERMISSIONS.
+ * To add a role: add it to ROLES and ROLE_PERMISSIONS (the AdminUser model enum uses ROLES).
  *
  * This file has no server-only imports so the client can use it to hide UI
  * affordances. Hiding UI is cosmetic — every API route re-checks on the server.

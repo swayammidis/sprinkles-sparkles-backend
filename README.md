@@ -1,29 +1,38 @@
-# Sprinkle & Sparkle — Admin & Catalog API
+# Sprinkle & Sparkle — Admin
 
-A custom admin panel and catalog backend for the Sprinkle & Sparkle store. It runs as a
-separate Next.js application from the customer website.
+The custom admin panel for Sprinkle & Sparkle, built with Next.js 16, TypeScript, MongoDB Atlas (Mongoose),
+Auth.js v5 and Tailwind with shadcn/ui.
 
-```
-Customer website ──(GET /api/public/*)──▶ this app ──▶ PostgreSQL (Prisma)
-Admin users ──(/admin UI + /api/admin/*)──▶ this app
-```
+**Status:** authentication, admin users and the complete **catalog** (products with images and variants,
+categories, subcategories, collections, occasions, brands, media library, store settings), plus a public read-only
+API for the customer website. Orders, customers, coupons, shipping and payments are shown as "Coming soon".
 
-**Stack:** Next.js 16 (App Router, Turbopack), TypeScript, Tailwind CSS 4, shadcn/ui (Radix), Lucide,
-PostgreSQL + Prisma 7, Zod 4, React Hook Form, and Better Auth for authentication.
+> The previous PostgreSQL/Prisma implementation is preserved on the git branch `postgres-prisma-snapshot`.
 
-## Quick start
+## Setup
 
 ```bash
-cp .env.example .env              # fill DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL
-docker compose up -d              # or use any PostgreSQL 14+ database
-npm install                       # also runs `prisma generate`
-npm run db:migrate                # create tables
-npm run db:seed                   # categories, collections, occasions + demo products
-npm run admin:create -- --email you@example.com --name "Your Name" --role SUPER_ADMIN
-npm run dev                       # http://localhost:3001
+npm install
+cp .env.example .env.local        # then fill in the values (see below)
+npm run db:check                  # verifies the MongoDB connection and creates indexes
+npm run create-admin              # prompts for Name, Email, Password, Role
+npm run dev                       # http://localhost:3001  →  /login
 ```
 
-To generate a secret: `openssl rand -base64 32`.
+### Environment variables (`.env.local`, never committed)
+
+| Variable | Required | Notes |
+|---|---|---|
+| `MONGODB_URI` | ✓ | Atlas connection string. **URL-encode the password** (`@`→`%40`, `#`→`%23`, `/`→`%2F`, `:`→`%3A`). The app always uses the `sprinkle_sparkle` database. |
+| `AUTH_SECRET` | ✓ | 32+ random characters. Generate with `npx auth secret`. Changing it signs everyone out. |
+| `AUTH_TRUST_HOST` | self-hosting | `true` when not deployed on Vercel. |
+| `AUTH_URL` | production | Public URL of the admin, e.g. `https://admin.example.com`. |
+| `STOREFRONT_ORIGINS` | | Customer-website origins allowed to call `/api/public/*` from a browser. |
+| `STORAGE_PROVIDER` | | `local` (files in `./storage/uploads`, served at `/media/*`) or `s3` (S3 / R2 / MinIO; also set `STORAGE_PUBLIC_BASE_URL` and `S3_*`). |
+| `UPLOAD_MAX_MB` | | Default 8. Images are converted to WebP and resized to at most 2000px. |
+
+Atlas: add your machine's or server's IP under **Network Access**, and use a database user
+that only has access to `sprinkle_sparkle`.
 
 ## Scripts
 
@@ -31,69 +40,77 @@ To generate a secret: `openssl rand -base64 32`.
 |---|---|
 | `npm run dev` / `build` / `start` | Next.js on port 3001 |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
-| `npm run db:migrate` | `prisma migrate dev` (development) |
-| `npm run db:deploy` | `prisma migrate deploy` (production) |
-| `npm run db:seed` | Idempotent seed |
-| `npm run db:remove-demo -- --yes` | Delete all demo products and demo images (a dry run without `--yes`) |
-| `npm run admin:create` | Create an admin. Reads the password from `ADMIN_PASSWORD` or prompts for it |
-| `npm run test:api` | End-to-end API test against a running server (see below) |
+| `npm run db:check` | Ping MongoDB, sync indexes, count admins (never prints the URI) |
+| `npm run create-admin` | Create an admin interactively. Password input is hidden and must be confirmed. |
+| `npm run test:auth` | End-to-end auth tests (`TEST_BASE_URL`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD`) |
+| `npm run test:api` | **Backend API smoke test** through the real HTTP API with self-cleaning test data (`API_TEST_BASE_URL`, `API_TEST_ADMIN_EMAIL`, `API_TEST_ADMIN_PASSWORD`). See `docs/API-SMOKE-TEST.md`. |
+| `npm run test:catalog` | End-to-end catalog + public API tests. Needs a throwaway database with a SUPER_ADMIN and an ADMIN (`TEST_BASE_URL`, `MONGODB_URI`, `TEST_SUPER_*`, `TEST_ADMIN_*`) |
+| `npm run test:registration` | End-to-end registration + roles tests. Needs an EMPTY throwaway database (`TEST_BASE_URL`, `MONGODB_URI`) |
 
-## Environment variables
+For automation, `create-admin` also accepts `--name`, `--email` and `--role`, and reads the password
+from the `ADMIN_PASSWORD` environment variable. The password is never passed as a flag.
 
-See `.env.example`. None of them are exposed to the browser.
+## Admin accounts
 
-| Variable | Required | Notes |
+**First SUPER_ADMIN.** While the database has no admins, `/register` accepts exactly one registration (name, email,
+password, confirm password). That account always becomes `SUPER_ADMIN`; the form has no role field. After that,
+`/register` shows "Admin registration is currently restricted." and the login page stops showing the link. A one-time
+lock document (`setup_state`) guarantees that only one registration can succeed, even if several are submitted at once.
+
+> No setup code is required, so whoever registers first becomes SUPER_ADMIN. **Create the first admin before the
+> site is publicly reachable**, or use `npm run create-admin` on the server, which closes `/register` too.
+
+**More admins.** A SUPER_ADMIN goes to **Admin Users** (`/admin/users`) and can create (with a confirmation step
+before creating another SUPER_ADMIN), edit, activate/deactivate, reset passwords (enter one or generate one) and delete admins.
+
+| | SUPER_ADMIN | ADMIN |
 |---|---|---|
-| `DATABASE_URL` | ✓ | PostgreSQL connection string |
-| `BETTER_AUTH_SECRET` | ✓ | 32+ random characters |
-| `BETTER_AUTH_URL` | ✓ | Public URL of this app. Used for cookies and the CSRF origin check |
-| `STOREFRONT_ORIGINS` | | Comma-separated origins allowed by CORS on `/api/public/*` |
-| `STORAGE_PROVIDER` | | `local` (development) or `s3` (S3 / R2 / MinIO) |
-| `STORAGE_PUBLIC_BASE_URL` | for s3 | Public CDN or bucket URL |
-| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | for s3 | |
-| `UPLOAD_MAX_MB` | | Default is 5 |
+| Dashboard, Products, Categories, Subcategories, Collections, Occasions, Brands, Media | ✓ | ✓ |
+| Admin Users (`/admin/users`, `/api/admin/users/*`) | ✓ | ✗ (redirect / 403) |
+| Settings, Security (`/admin/settings`, `/admin/settings/security`) | ✓ | ✗ (redirect) |
 
-## Project layout
+Safety rules: you can't change your own role, deactivate yourself or delete yourself, and there must always be at least one
+active SUPER_ADMIN. Deactivation, a role change, a password reset and deletion all sign that admin out immediately.
+
+## How authentication works
 
 ```
-prisma/            schema, migrations, seed, remove-demo
-scripts/           create-admin, api-smoke-test
-src/proxy.ts       fast pre-check for /admin and /api/admin (Next 16 "proxy", formerly middleware)
-src/app/login      sign-in page
-src/app/admin/*    admin UI (dashboard, products, categories, subcategories, collections, occasions, brands, media, settings)
-src/app/api/admin  authenticated CRUD API
-src/app/api/public read-only storefront API
-src/app/api/auth   Better Auth handler
-src/app/media      serves files from the local storage provider
-src/lib/auth       Better Auth config, session guards, role → permission map
-src/lib/api        route wrappers (auth, CSRF, errors, CORS)
-src/lib/services   all database logic (the only code that uses Prisma)
-src/lib/dto        Prisma → public DTO mappers
-src/lib/validations Zod schemas shared by forms and the server
-src/lib/uploads    storage abstraction (local, s3) and image validation
-src/types/public-api.ts   public API contract
-storefront-integration/   drop-in API client for the customer website
+/login form (RHF + Zod) → loginAction (server action, Zod again) → Auth.js Credentials authorize():
+  rate-limit check → find AdminUser by email → bcrypt compare (a dummy hash is used for unknown emails)
+  → isActive check → create AdminSession {sid} → JWT cookie (httpOnly) carrying uid/role/sid → redirect /admin
 ```
 
-## Security model
+- **Every admin request** (`requireAdminPage` for pages, `adminRoute` for `/api/admin/*`) checks MongoDB that
+  the session record still exists and the admin is still active. The role comes from the database, never from the token.
+- **Logout** deletes the session record and clears the cookie, so a copied cookie stops working immediately.
+  Deactivating an admin also cuts off their access on their next request.
+- **`src/proxy.ts`** (Next 16's name for middleware) is a fast pre-check that redirects or returns 401 without a valid JWT.
+- **Brute force:** 5 failed attempts per email, or 25 per IP, within 15 minutes locks sign-in for that key (stored in MongoDB with a TTL).
+- **Passwords:** bcrypt with cost 12, at least 12 characters with mixed case and a number, at most 72 bytes.
+  `passwordHash` is `select: false` and is stripped from JSON output.
 
-- **Authentication.** Better Auth with email and password. Passwords are hashed with scrypt, and sessions are stored in the database and can be revoked. Cookies are `httpOnly` and `SameSite=Lax`, and `Secure` in production. Sign-in is rate-limited to 5 attempts per 5 minutes per IP. Public sign-up is disabled.
-- **Authorization.** Every admin page calls `requireAdminPage(permission)`, and every admin route is wrapped in `adminRoute(permission, …)`. The session, the `active` flag and the role are read from the database on every request. `proxy.ts` is only a fast pre-check.
-- **Roles.** `SUPER_ADMIN` can do everything. `ADMIN` can manage the catalog and media. Permissions live in `src/lib/auth/permissions.ts`, so adding one means editing that single map. `role` and `active` are `input: false` in Better Auth, so clients cannot set them.
-- **CSRF.** Mutations under `/api/admin/*` must send an `Origin` header that matches the app, and cookies are `SameSite=Lax`.
-- **Validation.** All input is validated with Zod on the server, even though forms validate too. Unknown fields are stripped. Stock totals, stock status, effective price and image URLs are all derived on the server.
-- **Money** is `NUMERIC(10,2)` in the database, decimal strings in the API, and never floats. The database also enforces price and stock `CHECK` constraints and allows only one primary image per product.
-- **Uploads.** The file type is detected from its magic bytes (JPG, PNG, WebP, AVIF, GIF). SVG is rejected. Storage keys are generated on the server, and files are served with `nosniff`.
-- **Public API.** GET only, active products only, a whitelist of fields (no exact stock or internal flags), CORS restricted to the allowed origins.
+## Structure
 
-## Demo data
-
-The seed creates 8 demo products. Their SKUs start with `DEMO-`, they have `isDemo = true`, and they use placeholder
-images labelled "DEMO IMAGE". Remove them with `npm run db:remove-demo -- --yes`.
-
-## API test
-
-```bash
-npm run build && npm start
-TEST_ADMIN_EMAIL=... TEST_ADMIN_PASSWORD=... npm run test:api
 ```
+scripts/create-admin.ts      first-admin / admin creation CLI
+scripts/db-check.ts          connection + index check
+scripts/auth-test.ts         end-to-end auth tests
+src/lib/db.ts                cached Mongoose connection (safe under hot reload)
+src/models/AdminUser.ts      admin accounts
+src/models/AdminSession.ts   server-side session records (TTL)
+src/models/LoginAttempt.ts   brute-force counters (TTL)
+src/lib/auth/                Auth.js config, authorize(), session guards, bcrypt, permissions
+src/lib/api/admin-route.ts   wrapper for /api/admin/* (auth, permission, CSRF, safe errors)
+src/app/login/               login page + server actions (login/logout)
+src/app/admin/               protected admin layout, dashboard, section placeholders
+src/proxy.ts                 route pre-check
+```
+
+## Catalog
+
+- **Products** (`/admin/products`): search, filters, sorting and pagination run on the server. Desktop shows a table and mobile shows cards. Add/Edit uses one form with **Save as draft** / **Publish product**. Drafts never appear on the website.
+- **Money** is stored as integer paise. **Stock**, **stock status** and the "from" price are always calculated by the server.
+- **Variants**: pick what the options are (Size, Weight, Colour, Pack Quantity or anything else), then add rows (option, price, stock, plus optional SKU, sale price, weight and photo). Product stock is the total of the available options.
+- **Images**: drag & drop, reorder, set the main image. Files go to object storage through `src/lib/uploads/storage.ts` (local or S3/R2; add Cloudinary by implementing `StorageProvider`). MongoDB stores only references.
+- **Delete safety**: categories and subcategories that still have products are never deleted, and the admin is told what to move first. Images that are in use can't be deleted. Deleting a product always asks for confirmation.
+- **Public API** (`/api/public/*`, read-only, CORS-limited): products (search, filters, sorting, pagination, slug lookup), categories, subcategories, collections, occasions, brands, store info. See `storefront-integration/` for the drop-in client for the customer website.

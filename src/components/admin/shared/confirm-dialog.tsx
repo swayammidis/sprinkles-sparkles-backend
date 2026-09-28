@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
+/** Accessible confirmation dialog. `onConfirm` may throw to keep the dialog open. */
 export function ConfirmDialog({
   open,
   onOpenChange,
@@ -36,7 +37,9 @@ export function ConfirmDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
+          <AlertDialogDescription asChild>
+            <div className="text-sm text-muted-foreground">{description}</div>
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
@@ -48,6 +51,8 @@ export function ConfirmDialog({
               try {
                 await onConfirm();
                 onOpenChange(false);
+              } catch {
+                // the caller shows the error (toast); keep the dialog open
               } finally {
                 setBusy(false);
               }

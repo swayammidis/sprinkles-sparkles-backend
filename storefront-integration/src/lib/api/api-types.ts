@@ -1,92 +1,72 @@
 /**
- * Public storefront API contract (v1) — copy of the admin app's src/types/public-api.ts.
- * Keep in sync with the admin app when the contract changes.
+ * Public storefront API contract (v1). A copy of the admin app's src/types/public-api.ts.
+ * Keep the two in sync when the contract changes.
  *
- * Money is a decimal string in INR, e.g. "249.00". Convert with toPaise() — never add floats.
+ * Money is sent twice: a decimal rupee string ("180.00") for display and integer
+ * paise (18000) for exact arithmetic. Never add floats.
  */
 
-export type Money = string;
+export type PublicMoney = { amount: string; paise: number };
 
-export type PublicImage = {
-  url: string;
-  alt: string;
-  isPrimary: boolean;
-};
+export type PublicImage = { url: string; alt: string };
 
-export type PublicTaxonomyRef = { name: string; slug: string };
+export type PublicRef = { name: string; slug: string };
 
 export type PublicStockStatus = "in_stock" | "out_of_stock" | "backorder";
 
 export type PublicVariant = {
   id: string;
-  name: string;
-  sku: string;
-  price: Money;
-  salePrice: Money | null;
+  label: string;
+  sku: string | null;
+  price: PublicMoney;
+  salePrice: PublicMoney | null;
   stockStatus: PublicStockStatus;
-  weightGrams: string | null;
+  weightGrams: number | null;
   image: PublicImage | null;
-  /** e.g. { Size: "8 inch", Colour: "Pink" } */
-  attributes: Record<string, string>;
 };
 
 export type PublicProductSummary = {
   id: string;
   slug: string;
   name: string;
-  shortDescription: string | null;
-  sku: string;
-  price: Money;
-  salePrice: Money | null;
-  /** Lowest active variant price (or product price when no variants). */
-  fromPrice: Money;
+  shortDescription: string;
+  price: PublicMoney;
+  salePrice: PublicMoney | null;
+  /** What the customer pays (sale price, or the cheapest option for products with variants). */
+  fromPrice: PublicMoney;
   currency: "INR";
   stockStatus: PublicStockStatus;
   hasVariants: boolean;
   image: PublicImage | null;
-  category: PublicTaxonomyRef | null;
-  subcategory: PublicTaxonomyRef | null;
-  brand: PublicTaxonomyRef | null;
+  category: PublicRef | null;
+  subcategory: PublicRef | null;
+  brand: PublicRef | null;
   badges: { featured: boolean; newArrival: boolean; bestSeller: boolean; onSale: boolean };
 };
 
 export type PublicProductDetail = PublicProductSummary & {
-  description: string | null;
+  sku: string | null;
+  description: string;
   images: PublicImage[];
+  variantType: string | null;
   variants: PublicVariant[];
-  collections: PublicTaxonomyRef[];
-  occasions: PublicTaxonomyRef[];
-  shipping: { weightGrams: string | null; lengthCm: string | null; widthCm: string | null; heightCm: string | null };
-  seo: { title: string; description: string | null; image: string | null };
+  collections: PublicRef[];
+  occasions: PublicRef[];
+  tags: string[];
+  shipping: { weightGrams: number | null; lengthCm: number | null; widthCm: number | null; heightCm: number | null };
+  seo: { title: string; description: string; image: string | null };
 };
 
-export type PublicCategory = {
-  name: string;
-  slug: string;
-  description: string | null;
-  image: string | null;
-  subcategories: { name: string; slug: string; description: string | null; image: string | null }[];
-};
+export type PublicTaxonomy = PublicRef & { description: string; image: string | null };
+export type PublicCategory = PublicTaxonomy & { subcategories: PublicTaxonomy[] };
+export type PublicSubcategory = PublicTaxonomy & { category: PublicRef };
 
-export type PublicCollection = {
-  name: string;
-  slug: string;
-  description: string | null;
-  bannerImage: string | null;
-};
-
-export type PublicOccasion = {
-  name: string;
-  slug: string;
-  description: string | null;
-  image: string | null;
-};
-
-export type PublicBrand = {
-  name: string;
-  slug: string;
-  description: string | null;
-  logo: string | null;
+export type PublicStoreInfo = {
+  storeName: string;
+  tagline: string;
+  contact: { email: string; phone: string; whatsapp: string };
+  address: { line1: string; line2: string; city: string; state: string; postalCode: string; country: string };
+  social: { instagram: string; facebook: string; youtube: string; pinterest: string };
 };
 
 export type Paginated<T> = {

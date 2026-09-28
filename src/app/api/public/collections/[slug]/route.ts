@@ -1,5 +1,5 @@
 import { publicOptions, publicRoute } from "@/lib/api/public-route";
-import { getPublicCollection } from "@/lib/services/public-catalog";
+import { getPublicTaxonomyBySlug } from "@/lib/services/public-catalog";
 
-export const GET = publicRoute<{ slug: string }>(async (_req, { slug }) => getPublicCollection(slug));
+export const GET = publicRoute<{ slug: string }>(async (_req, { slug }) => getPublicTaxonomyBySlug("collections", slug));
 export const OPTIONS = publicOptions;
