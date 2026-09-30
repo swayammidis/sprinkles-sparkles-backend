@@ -23,7 +23,10 @@ const cache: MongooseCache = (globalForMongoose._mongoose ??= { conn: null, prom
 /** Reads and sanity-checks MONGODB_URI. The value itself is never logged. */
 export function readMongoUri(): string {
   if (typeof window !== "undefined") throw new DatabaseConfigError("Database access is server-only");
-  const uri = process.env.MONGODB_URI?.trim();
+  let uri = process.env.MONGODB_URI?.trim();
+  if (uri) {
+    uri = uri.replace(/^["']|["']$/g, "").trim();
+  }
   if (!uri) throw new DatabaseConfigError("MONGODB_URI is not set. Add it to .env.local.");
   if (!/^mongodb(\+srv)?:\/\//.test(uri)) {
     throw new DatabaseConfigError("MONGODB_URI must start with mongodb:// or mongodb+srv://");
@@ -56,11 +59,9 @@ export async function connectDB(): Promise<typeof mongoose> {
     cache.promise = mongoose.connect(uri, {
       dbName: DB_NAME, // always sprinkle_sparkle, regardless of the URI path
       bufferCommands: false, // fail fast instead of queueing queries while disconnected
-      serverSelectionTimeoutMS: 8_000,
+      serverSelectionTimeoutMS: 10_000,
       maxPoolSize: 10,
-      // Always ensure indexes exist. Unique indexes (SKU, slug, email) are part of data integrity, so
-      // they must also exist in production. createIndex on an existing index is a no-op.
-      autoIndex: true,
+      autoIndex: process.env.NODE_ENV !== "production",
     });
   }
 
