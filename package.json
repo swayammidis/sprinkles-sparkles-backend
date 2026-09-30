@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "create-admin": "tsx --env-file-if-exists=.env.local scripts/create-admin.ts",
+    "bootstrap:admin": "tsx --env-file-if-exists=.env.local scripts/bootstrap-super-admin.ts",
     "db:check": "tsx --env-file-if-exists=.env.local scripts/db-check.ts",
     "test:auth": "tsx --env-file-if-exists=.env.local scripts/auth-test.ts",
     "test:registration": "tsx --env-file-if-exists=.env.local scripts/registration-test.ts",

@@ -1,14 +1,29 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useForm, type FieldValues, type Path, type UseFormSetError } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Copy, KeyRound, Loader2, MoreHorizontal, Pencil, Power, RefreshCw, Trash2, UserPlus } from "lucide-react";
+import {
+  Check,
+  Copy,
+  KeyRound,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Power,
+  RefreshCw,
+  Search,
+  Trash2,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ApiClientError } from "@/lib/utils/api-client";
 import { formatDate, formatDateTime } from "@/lib/utils/format";
-import { ROLE_LABELS, ROLES, type Role } from "@/lib/auth/permissions";
+import { ROLE_LABELS, ROLES } from "@/lib/auth/permissions";
+
+import type { AdminUserRow } from "@/lib/services/admin-users";
 import {
   adminCreateSchema,
   adminUpdateSchema,
@@ -43,23 +58,17 @@ import {
 import { StatusBadge } from "@/components/admin/shared/status-badge";
 import { PasswordInput } from "@/components/admin/auth/password-input";
 
-export type AdminUserRow = {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  isActive: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-};
-
 type Dialogs =
   | { kind: "create" }
   | { kind: "edit"; user: AdminUserRow }
   | { kind: "password"; user: AdminUserRow }
   | { kind: "delete"; user: AdminUserRow }
   | { kind: "status"; user: AdminUserRow }
+  | { kind: "approve"; user: AdminUserRow }
+  | { kind: "reject"; user: AdminUserRow }
   | null;
+
+type FilterTab = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "INACTIVE";
 
 function applyServerErrors<T extends FieldValues>(err: unknown, setError: UseFormSetError<T>) {
   if (err instanceof ApiClientError) {
@@ -90,6 +99,9 @@ export function AdminUsersManager({ users, currentUserId }: { users: AdminUserRo
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [dialog, setDialog] = useState<Dialogs>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<FilterTab>("ALL");
+
   const close = () => setDialog(null);
   const done = (message: string) => {
     toast.success(message);
@@ -97,12 +109,108 @@ export function AdminUsersManager({ users, currentUserId }: { users: AdminUserRo
     startTransition(() => router.refresh());
   };
 
+  // Compute status category for a user
+  const getUserStatusCategory = (u: AdminUserRow): "PENDING" | "APPROVED" | "REJECTED" | "INACTIVE" => {
+    if (u.status === "PENDING") return "PENDING";
+    if (u.status === "REJECTED") return "REJECTED";
+    if (!u.isActive) return "INACTIVE";
+    return "APPROVED";
+  };
+
+  // Filtered and searched users
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      // Status filter
+      if (filter !== "ALL") {
+        const cat = getUserStatusCategory(u);
+        if (cat !== filter) return false;
+      }
+
+      // Search filter
+      if (search.trim()) {
+        const query = search.toLowerCase().trim();
+        const matchesName = u.name.toLowerCase().includes(query);
+        const matchesEmail = u.email.toLowerCase().includes(query);
+        if (!matchesName && !matchesEmail) return false;
+      }
+
+      return true;
+    });
+  }, [users, filter, search]);
+
+  const counts = useMemo(() => {
+    const res = { ALL: users.length, PENDING: 0, APPROVED: 0, REJECTED: 0, INACTIVE: 0 };
+    for (const u of users) {
+      const cat = getUserStatusCategory(u);
+      res[cat]++;
+    }
+    return res;
+  }, [users]);
+
   return (
     <>
-      <div className="mb-4 flex justify-end">
-        <Button onClick={() => setDialog({ kind: "create" })}>
-          <UserPlus /> Create Admin
-        </Button>
+      {/* Header controls: Search, Filters, Create Admin */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by name or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 pl-9 pr-8"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setDialog({ kind: "create" })} className="h-9">
+            <UserPlus className="size-4" /> Create Admin
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b pb-3">
+        {(
+          [
+            { id: "ALL", label: "All" },
+            { id: "PENDING", label: "Pending" },
+            { id: "APPROVED", label: "Approved" },
+            { id: "REJECTED", label: "Rejected" },
+            { id: "INACTIVE", label: "Inactive" },
+          ] as const
+        ).map((tab) => {
+          const active = filter === tab.id;
+          const count = counts[tab.id];
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setFilter(tab.id)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span
+                className={`rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums ${
+                  active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-background/80 text-muted-foreground"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="overflow-hidden rounded-xl border bg-card">
@@ -122,59 +230,143 @@ export function AdminUsersManager({ users, currentUserId }: { users: AdminUserRo
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((u) => {
-                const self = u.id === currentUserId;
-                return (
-                  <TableRow key={u.id}>
-                    <TableCell className="font-medium">
-                      {u.name} {self && <span className="text-xs font-normal text-muted-foreground">(you)</span>}
-                    </TableCell>
-                    <TableCell className="text-sm">{u.email}</TableCell>
-                    <TableCell>
-                      <StatusBadge tone={u.role === "SUPER_ADMIN" ? "pink" : "turquoise"} dot={false}>
-                        {ROLE_LABELS[u.role]}
-                      </StatusBadge>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge tone={u.isActive ? "success" : "neutral"}>{u.isActive ? "Active" : "Inactive"}</StatusBadge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "Never"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(u.createdAt)}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${u.name}`}>
-                            <MoreHorizontal />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onSelect={() => setDialog({ kind: "edit", user: u })}>
-                            <Pencil /> Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem disabled={self} onSelect={() => setDialog({ kind: "status", user: u })}>
-                            <Power /> {u.isActive ? "Deactivate" : "Activate"}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => setDialog({ kind: "password", user: u })}>
-                            <KeyRound /> Reset password
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem variant="destructive" disabled={self} onSelect={() => setDialog({ kind: "delete", user: u })}>
-                            <Trash2 /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {filteredUsers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                    No administrators found matching your filter.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredUsers.map((u) => {
+                  const self = u.id === currentUserId;
+                  const isPending = u.status === "PENDING";
+                  const isRejected = u.status === "REJECTED";
+                  const isApproved = u.status === "APPROVED" || !u.status;
+
+                  return (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-medium">
+                        {u.name} {self && <span className="text-xs font-normal text-muted-foreground">(you)</span>}
+                      </TableCell>
+                      <TableCell className="text-sm">{u.email}</TableCell>
+                      <TableCell>
+                        <StatusBadge tone={u.role === "SUPER_ADMIN" ? "pink" : "turquoise"} dot={false}>
+                          {ROLE_LABELS[u.role]}
+                        </StatusBadge>
+                      </TableCell>
+                      <TableCell>
+                        {isPending && <StatusBadge tone="warning">Pending</StatusBadge>}
+                        {isRejected && <StatusBadge tone="danger">Rejected</StatusBadge>}
+                        {isApproved && (
+                          <StatusBadge tone={u.isActive ? "success" : "neutral"}>
+                            {u.isActive ? "Approved" : "Inactive"}
+                          </StatusBadge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "Never"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(u.createdAt)}</TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${u.name}`}>
+                              <MoreHorizontal />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {/* Pending actions */}
+                            {isPending && (
+                              <>
+                                <DropdownMenuItem onSelect={() => setDialog({ kind: "approve", user: u })}>
+                                  <Check className="size-4 text-success" /> Approve Request
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => setDialog({ kind: "reject", user: u })}>
+                                  <X className="size-4 text-destructive" /> Reject Request
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
+
+                            {/* Rejected actions */}
+                            {isRejected && (
+                              <>
+                                <DropdownMenuItem onSelect={() => setDialog({ kind: "approve", user: u })}>
+                                  <Check className="size-4 text-success" /> Approve Account
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
+
+                            {/* Edit */}
+                            <DropdownMenuItem onSelect={() => setDialog({ kind: "edit", user: u })}>
+                              <Pencil /> Edit
+                            </DropdownMenuItem>
+
+                            {/* Activate / Deactivate (only for approved accounts) */}
+                            {isApproved && (
+                              <DropdownMenuItem disabled={self} onSelect={() => setDialog({ kind: "status", user: u })}>
+                                <Power /> {u.isActive ? "Deactivate" : "Activate"}
+                              </DropdownMenuItem>
+                            )}
+
+                            {/* Reset password */}
+                            <DropdownMenuItem onSelect={() => setDialog({ kind: "password", user: u })}>
+                              <KeyRound /> Reset password
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            {/* Delete (prevent self-deletion) */}
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={self}
+                              onSelect={() => setDialog({ kind: "delete", user: u })}
+                            >
+                              <Trash2 /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </div>
       </div>
 
       {dialog?.kind === "create" && <CreateDialog onClose={close} onDone={done} />}
-      {dialog?.kind === "edit" && <EditDialog user={dialog.user} self={dialog.user.id === currentUserId} onClose={close} onDone={done} />}
+      {dialog?.kind === "edit" && (
+        <EditDialog user={dialog.user} self={dialog.user.id === currentUserId} onClose={close} onDone={done} />
+      )}
       {dialog?.kind === "password" && <PasswordDialog user={dialog.user} onClose={close} onDone={done} />}
+      {dialog?.kind === "approve" && (
+        <ConfirmAction
+          title={`Approve Admin Access for ${dialog.user.name}?`}
+          description="After approval, this user will be able to sign in to the admin panel."
+          confirmLabel="Approve"
+          onClose={close}
+          onConfirm={async () => {
+            await apiFetch(`/api/admin/requests/${dialog.user.id}/approve`, { method: "POST" });
+            done("Admin access approved successfully.");
+          }}
+        />
+      )}
+      {dialog?.kind === "reject" && (
+        <ConfirmAction
+          title={`Reject Admin Request for ${dialog.user.name}?`}
+          description="This user will not be able to access the admin panel."
+          confirmLabel="Reject"
+          destructive
+          onClose={close}
+          onConfirm={async () => {
+            await apiFetch(`/api/admin/requests/${dialog.user.id}/reject`, { method: "POST" });
+            done("Admin request rejected.");
+          }}
+        />
+      )}
       {dialog?.kind === "status" && (
         <ConfirmAction
           title={dialog.user.isActive ? `Deactivate ${dialog.user.name}?` : `Activate ${dialog.user.name}?`}
@@ -187,7 +379,10 @@ export function AdminUsersManager({ users, currentUserId }: { users: AdminUserRo
           destructive={dialog.user.isActive}
           onClose={close}
           onConfirm={async () => {
-            await apiFetch(`/api/admin/users/${dialog.user.id}/status`, { method: "PATCH", body: { isActive: !dialog.user.isActive } });
+            await apiFetch(`/api/admin/users/${dialog.user.id}/status`, {
+              method: "PATCH",
+              body: { isActive: !dialog.user.isActive },
+            });
             done(dialog.user.isActive ? "Admin deactivated" : "Admin activated");
           }}
         />
@@ -211,7 +406,15 @@ export function AdminUsersManager({ users, currentUserId }: { users: AdminUserRo
 
 // ---------------------------------------------------------------------------
 
-function RoleSelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+function RoleSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger className="w-full">
@@ -311,7 +514,17 @@ function CreateDialog({ onClose, onDone }: { onClose: () => void; onDone: (m: st
   );
 }
 
-function EditDialog({ user, self, onClose, onDone }: { user: AdminUserRow; self: boolean; onClose: () => void; onDone: (m: string) => void }) {
+function EditDialog({
+  user,
+  self,
+  onClose,
+  onDone,
+}: {
+  user: AdminUserRow;
+  self: boolean;
+  onClose: () => void;
+  onDone: (m: string) => void;
+}) {
   const form = useForm<AdminUpdateInput>({
     resolver: zodResolver(adminUpdateSchema),
     defaultValues: { name: user.name, email: user.email, role: user.role },
@@ -368,7 +581,15 @@ function EditDialog({ user, self, onClose, onDone }: { user: AdminUserRow; self:
   );
 }
 
-function PasswordDialog({ user, onClose, onDone }: { user: AdminUserRow; onClose: () => void; onDone: (m: string) => void }) {
+function PasswordDialog({
+  user,
+  onClose,
+  onDone,
+}: {
+  user: AdminUserRow;
+  onClose: () => void;
+  onDone: (m: string) => void;
+}) {
   const [generated, setGenerated] = useState<string | null>(null);
   const form = useForm<ResetPasswordInput>({
     resolver: zodResolver(resetPasswordSchema),

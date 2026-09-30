@@ -5,20 +5,16 @@ import { readMongoUri } from "@/lib/db";
 /**
  * Server environment, validated on first use.
  * None of these use the NEXT_PUBLIC_ prefix, so Next.js never inlines them into browser bundles.
+ *
+ * Auth secrets (AUTH_SECRET / NEXTAUTH_SECRET) are NOT required.
+ * The custom session system generates cryptographically random tokens
+ * and stores only their SHA-256 hashes in MongoDB.
  */
-const authSchema = z.object({
-  AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters (generate with: npx auth secret)"),
-});
 
 let validated = false;
 
 export function assertServerEnv() {
   if (validated) return;
-  const parsed = authSchema.safeParse(process.env);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
-    throw new Error(`Invalid server environment:\n${issues}`);
-  }
   readMongoUri(); // format/placeholder check (the value is never logged)
   validated = true;
 }

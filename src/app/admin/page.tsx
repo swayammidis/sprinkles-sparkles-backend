@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, FolderTree, ImageIcon, Layers, Package, PackageX, Plus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FolderTree, ImageIcon, Layers, Package, PackageX, Plus, UserCheck } from "lucide-react";
 import { requireAdminPage } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getDashboardStats } from "@/lib/dashboard";
@@ -44,6 +44,7 @@ export default async function DashboardPage(props: PageProps<"/admin">) {
   const { forbidden } = await props.searchParams;
   const s = await getDashboardStats();
   const canWrite = hasPermission(admin.role, "catalog:write");
+  const isSuperAdmin = admin.role === "SUPER_ADMIN";
 
   return (
     <>
@@ -57,6 +58,41 @@ export default async function DashboardPage(props: PageProps<"/admin">) {
           You don&apos;t have permission to open that page. Ask a Super Admin if you need access.
         </p>
       )}
+
+      {isSuperAdmin && (
+        <div className="mb-6 rounded-xl border bg-card p-4 transition-colors">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${
+                  s.pendingAdminRequests > 0 ? "bg-warning-soft text-warning" : "bg-muted text-muted-foreground"
+                }`}
+                aria-hidden
+              >
+                <UserCheck className="size-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold">Admin Requests</h2>
+                <p className="text-sm text-muted-foreground">
+                  {s.pendingAdminRequests > 0
+                    ? `You have ${s.pendingAdminRequests} admin access request${s.pendingAdminRequests === 1 ? "" : "s"} waiting for approval.`
+                    : "No pending admin requests."}
+                </p>
+              </div>
+            </div>
+            {s.pendingAdminRequests > 0 ? (
+              <Button asChild size="sm" className="h-9 w-full sm:w-auto">
+                <Link href="/admin/admin-requests">Review Requests</Link>
+              </Button>
+            ) : (
+              <Button asChild variant="outline" size="sm" className="h-9 w-full sm:w-auto">
+                <Link href="/admin/admin-requests">View Requests</Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
 
       {canWrite && (
         <section aria-labelledby="quick-actions" className="mb-6">

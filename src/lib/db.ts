@@ -34,11 +34,25 @@ export function readMongoUri(): string {
   return uri;
 }
 
+export function sanitizeDbError(err: unknown): string {
+  if (!(err instanceof Error)) return "Unknown error";
+  let msg = `${err.name}: ${err.message}`;
+  msg = msg.replace(/mongodb(\+srv)?:\/\/[^@\s]+@/g, "mongodb$1://[REDACTED]@");
+  msg = msg.replace(/(password|secret|token)=([^\s&]+)/gi, "$1=[REDACTED]");
+  return msg;
+}
+
 export async function connectDB(): Promise<typeof mongoose> {
   if (cache.conn && mongoose.connection.readyState === 1) return cache.conn;
 
   if (!cache.promise) {
-    const uri = readMongoUri();
+    let uri: string;
+    try {
+      uri = readMongoUri();
+    } catch (err) {
+      console.error("[db] MongoDB configuration error:", err instanceof Error ? err.message : "invalid config");
+      throw err;
+    }
     cache.promise = mongoose.connect(uri, {
       dbName: DB_NAME, // always sprinkle_sparkle, regardless of the URI path
       bufferCommands: false, // fail fast instead of queueing queries while disconnected
@@ -55,8 +69,8 @@ export async function connectDB(): Promise<typeof mongoose> {
     return cache.conn;
   } catch (err) {
     cache.promise = null; // allow a retry on the next request
-    // Log the driver error server-side only; callers get a generic error.
-    console.error("[db] MongoDB connection failed:", err instanceof Error ? err.name : "unknown error");
+    // Log the driver error server-side safely; callers get a generic error.
+    console.error("[db] MongoDB connection failed:", sanitizeDbError(err));
     throw new DatabaseUnavailableError("Database unavailable");
   }
 }

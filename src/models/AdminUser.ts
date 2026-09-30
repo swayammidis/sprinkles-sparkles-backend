@@ -1,6 +1,9 @@
 import { Schema, model, models, type HydratedDocument, type InferSchemaType, type Model } from "mongoose";
 import { ROLES } from "@/lib/auth/permissions";
 
+export const ADMIN_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+export type AdminStatus = (typeof ADMIN_STATUSES)[number];
+
 /**
  * Admin accounts for the back office.
  * `passwordHash` is `select: false` and is also stripped from toJSON/toObject,
@@ -20,8 +23,18 @@ const adminUserSchema = new Schema(
     },
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: ROLES, required: true, default: "ADMIN" },
+    status: {
+      type: String,
+      enum: ADMIN_STATUSES,
+      required: true,
+      default: "APPROVED",
+    },
     isActive: { type: Boolean, required: true, default: true },
     lastLoginAt: { type: Date, default: null },
+    approvedAt: { type: Date, default: null },
+    approvedBy: { type: Schema.Types.ObjectId, ref: "AdminUser", default: null },
+    rejectedAt: { type: Date, default: null },
+    rejectedBy: { type: Schema.Types.ObjectId, ref: "AdminUser", default: null },
   },
   {
     timestamps: true, // createdAt, updatedAt
@@ -42,3 +55,4 @@ export type AdminUserDocument = HydratedDocument<AdminUserFields>;
 
 export const AdminUser: Model<AdminUserFields> =
   (models.AdminUser as Model<AdminUserFields> | undefined) ?? model<AdminUserFields>("AdminUser", adminUserSchema);
+

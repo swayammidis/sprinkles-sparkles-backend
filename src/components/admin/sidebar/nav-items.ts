@@ -13,6 +13,7 @@ import {
   Tags,
   TicketPercent,
   Truck,
+  UserCheck,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -39,6 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "System",
     items: [
+      { href: "/admin/admin-requests", label: "Admin Requests", icon: UserCheck, permission: "admins:manage" },
       { href: "/admin/users", label: "Admin Users", icon: ShieldCheck, permission: "admins:manage" },
       { href: "/admin/settings", label: "Settings", icon: Settings, permission: "settings:manage" },
     ],

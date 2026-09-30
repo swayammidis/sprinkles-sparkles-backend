@@ -17,8 +17,10 @@ import { COMING_SOON_ITEMS, NAV_GROUPS, type NavGroup } from "@/components/admin
 type ShellProps = {
   admin: { name: string; email: string; role: Role };
   initialCollapsed: boolean;
+  pendingRequestsCount?: number;
   children: React.ReactNode;
 };
+
 
 function isActive(pathname: string, href: string) {
   return href === "/admin" ? pathname === "/admin" : pathname === href || pathname.startsWith(`${href}/`);
@@ -29,7 +31,19 @@ function isActive(pathname: string, href: string) {
  *   "drawer": mobile/tablet sheet, always full labels
  *   "rail":   md–lg icon rail; full width on lg+ unless the user collapsed it
  */
-function NavList({ role, mode, collapsed, onNavigate }: { role: Role; mode: "drawer" | "rail"; collapsed: boolean; onNavigate?: () => void }) {
+function NavList({
+  role,
+  mode,
+  collapsed,
+  pendingRequestsCount = 0,
+  onNavigate,
+}: {
+  role: Role;
+  mode: "drawer" | "rail";
+  collapsed: boolean;
+  pendingRequestsCount?: number;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const groups: NavGroup[] = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => hasPermission(role, i.permission)) })).filter((g) => g.items.length);
   const rail = mode === "rail";
@@ -48,6 +62,8 @@ function NavList({ role, mode, collapsed, onNavigate }: { role: Role; mode: "dra
       <ul className="space-y-0.5">
         {g.items.map((item) => {
           const active = isActive(pathname, item.href);
+          const isRequests = item.href === "/admin/admin-requests";
+          const hasBadge = isRequests && pendingRequestsCount > 0;
           const link = (
             <Link
               href={item.href}
@@ -59,8 +75,23 @@ function NavList({ role, mode, collapsed, onNavigate }: { role: Role; mode: "dra
                 itemLayout,
               )}
             >
-              <item.icon className={cn("size-[18px] shrink-0", active ? "text-sidebar-primary" : "text-sidebar-foreground/60")} aria-hidden />
+              <div className="relative shrink-0">
+                <item.icon className={cn("size-[18px] shrink-0", active ? "text-sidebar-primary" : "text-sidebar-foreground/60")} aria-hidden />
+                {hasBadge && rail && (collapsed ? true : undefined) && (
+                  <span className="absolute -top-1 -right-1 size-2 rounded-full bg-amber-500 ring-2 ring-sidebar lg:hidden" aria-hidden />
+                )}
+              </div>
               <span className={labelCls}>{item.label}</span>
+              {hasBadge && (
+                <span
+                  className={cn(
+                    "ml-auto rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400 tabular-nums",
+                    rail && (collapsed ? "hidden" : "hidden lg:inline"),
+                  )}
+                >
+                  {pendingRequestsCount}
+                </span>
+              )}
             </Link>
           );
           return (
@@ -69,7 +100,7 @@ function NavList({ role, mode, collapsed, onNavigate }: { role: Role; mode: "dra
                 <Tooltip>
                   <TooltipTrigger asChild>{link}</TooltipTrigger>
                   <TooltipContent side="right" className={collapsed ? undefined : "lg:hidden"}>
-                    {item.label}
+                    {item.label} {hasBadge ? `(${pendingRequestsCount})` : ""}
                   </TooltipContent>
                 </Tooltip>
               ) : (
@@ -81,6 +112,7 @@ function NavList({ role, mode, collapsed, onNavigate }: { role: Role; mode: "dra
       </ul>
     </div>
   );
+
 
   const [main, ...rest] = groups;
   const system = rest.find((g) => g.label === "System");
@@ -122,7 +154,7 @@ function NavList({ role, mode, collapsed, onNavigate }: { role: Role; mode: "dra
   );
 }
 
-export function AdminShell({ admin, initialCollapsed, children }: ShellProps) {
+export function AdminShell({ admin, initialCollapsed, pendingRequestsCount = 0, children }: ShellProps) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -155,7 +187,7 @@ export function AdminShell({ admin, initialCollapsed, children }: ShellProps) {
           </Link>
         </div>
         <div className="flex-1 overflow-y-auto py-4">
-          <NavList role={admin.role} mode="rail" collapsed={collapsed} />
+          <NavList role={admin.role} mode="rail" collapsed={collapsed} pendingRequestsCount={pendingRequestsCount} />
         </div>
         <div className={cn("hidden border-t border-sidebar-border p-3 lg:flex", collapsed && "justify-center")}>
           <Button variant="ghost" size={collapsed ? "icon" : "sm"} onClick={toggleCollapsed} className="text-muted-foreground" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
@@ -173,10 +205,11 @@ export function AdminShell({ admin, initialCollapsed, children }: ShellProps) {
             <Logo />
           </div>
           <div className="py-4">
-            <NavList role={admin.role} mode="drawer" collapsed={false} onNavigate={() => setMobileOpen(false)} />
+            <NavList role={admin.role} mode="drawer" collapsed={false} pendingRequestsCount={pendingRequestsCount} onNavigate={() => setMobileOpen(false)} />
           </div>
         </SheetContent>
       </Sheet>
+
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-1 border-b bg-background/90 px-2 backdrop-blur sm:px-4 lg:px-6">

@@ -1,7 +1,7 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
-import { DatabaseUnavailableError } from "@/lib/db";
+import { DatabaseUnavailableError, sanitizeDbError } from "@/lib/db";
 
 /**
  * Read-only storefront endpoints: GET only, no cookies, CORS limited to
@@ -32,7 +32,7 @@ export function publicRoute<P = Record<string, never>>(handler: (req: NextReques
       if (err instanceof DatabaseUnavailableError) {
         return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503, headers: cors });
       }
-      console.error("[public-api] error:", err instanceof Error ? err.name : "unknown");
+      console.error("[public-api] error:", sanitizeDbError(err));
       return NextResponse.json({ error: "Something went wrong" }, { status: 500, headers: cors });
     }
   };

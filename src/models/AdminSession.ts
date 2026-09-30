@@ -1,20 +1,23 @@
 import { Schema, Types, model, models, type InferSchemaType, type Model } from "mongoose";
 
 /**
- * Server-side record of each login. The session JWT carries only a random `sid`;
- * the server checks that this record still exists on every admin request.
- * Deleting the record (logout, deactivation) invalidates the session immediately,
- * even though JWTs are otherwise stateless. Expired records are removed by the TTL index.
+ * Custom MongoDB-backed AdminSession model.
+ * Stores only a SHA-256 hash of the session token (`tokenHash`).
+ * The raw token only exists in the user's secure HTTP-only cookie.
  */
 const adminSessionSchema = new Schema(
   {
-    sid: { type: String, required: true, unique: true },
-    userId: { type: Types.ObjectId, ref: "AdminUser", required: true, index: true },
-    expiresAt: { type: Date, required: true, expires: 0 }, // TTL index
+    adminUserId: { type: Types.ObjectId, ref: "AdminUser", required: true, index: true },
+    tokenHash: { type: String, required: true, unique: true, index: true },
+    expiresAt: { type: Date, required: true, index: true, expires: 0 }, // MongoDB TTL index
+    lastUsedAt: { type: Date, default: Date.now },
     userAgent: { type: String, maxlength: 300 },
     ip: { type: String, maxlength: 64 },
   },
-  { timestamps: { createdAt: true, updatedAt: false }, collection: "admin_sessions" },
+  {
+    timestamps: { createdAt: true, updatedAt: false },
+    collection: "admin_sessions",
+  },
 );
 
 export type AdminSessionFields = InferSchemaType<typeof adminSessionSchema>;

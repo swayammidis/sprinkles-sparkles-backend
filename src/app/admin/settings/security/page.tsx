@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { requireAdminPage } from "@/lib/auth/session";
 import { getRegistrationStatus } from "@/lib/auth/setup";
-import { SESSION_MAX_AGE } from "@/lib/auth/auth.config";
+import { SESSION_MAX_AGE } from "@/lib/auth/session";
 import { BCRYPT_COST } from "@/lib/auth/password";
 import { connectDB } from "@/lib/db";
 import { AdminSession } from "@/models/AdminSession";
