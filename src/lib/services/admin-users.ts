@@ -2,7 +2,6 @@ import "server-only";
 import { isValidObjectId } from "mongoose";
 import { connectDB } from "@/lib/db";
 import { AdminUser, type AdminStatus } from "@/models/AdminUser";
-import { AdminSession } from "@/models/AdminSession";
 import { hashPassword } from "@/lib/auth/password";
 import { ApiError } from "@/lib/api/admin-route";
 import { revokeAllSessionsForUser, type CurrentAdmin } from "@/lib/auth/session";
